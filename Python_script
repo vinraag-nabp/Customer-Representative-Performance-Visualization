@@ -1,0 +1,230 @@
+import os
+from os import path
+import sys
+import csv
+import itertools
+from openpyxl import Workbook
+import pyodbc
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import datetime as dt
+from matplotlib.collections import PatchCollection
+import matplotlib.patches as mpatches
+
+conn_str = 'Driver={Pervasive ODBC Client Interface}; ServerName = testserver; dbq= INTERNDATA;'
+db = pyodbc.connect(conn_str)
+
+CSR_DATA = ("select BKARHINV.BKAR_INV_NUM as 'INVOICE',\
+                                BKARHINV.BKAR_INV_SLSP as 'SALES PERSON',\
+                                 BKARHINV.BKAR_INV_INVDTE as 'INVOICE DATE',\
+                                 BKARHINV.BKAR_INV_SUBTOT as 'INVOICE TOTAL',\
+                                 BKARHINV.BKAR_INV_LOC as 'LOCATION',\
+                                 BKARHINV.BKAR_INV_CUSNME as 'CUSTOMER NAME',\
+                                 BKARHINV.BKAR_INV_TAXAMT as 'TAX AMOUNT',\
+                                 BKPRMSTR.BKPR_EMP_FNMI as 'EMPLOYEE FIRST NAME',\
+                                 BKPRMSTR.BKPR_EMP_LNME as 'EMPLOYEE LAST NAME'\
+                                 from BKARHINV JOIN BKPRMSTR on  BKARHINV.BKAR_INV_SLSP = BKPRMSTR.BKPR_EMP_NUM\
+                                 WHERE BKARHINV.BKAR_INV_INVDTE BETWEEN '2018-01-01' AND '2018-12-31'")
+
+
+
+Total_sales = pd.read_sql(CSR_DATA,db)
+
+Total_sales['INVOICE DATE'] = pd.to_datetime(Total_sales['INVOICE DATE'])
+Total_sales['INVOICE DATE'] = Total_sales['INVOICE DATE'].dt.strftime('%Y-%m')
+Overall_sales = pd.pivot_table(Total_sales, index = ['INVOICE DATE'], values = ['INVOICE TOTAL'], aggfunc = sum)
+
+
+#------------------------------------------------------------------------------------------------------#------------------------------------------------------------------------------------#
+
+Overall_sales.reset_index(inplace = True)
+
+sns.set_style("whitegrid", {'axes.grid' : True})
+sns.set(font_scale = 0.7)
+
+
+    
+ax = sns.barplot(x = 'INVOICE DATE', y = 'INVOICE TOTAL', data = Overall_sales, capsize = 2)
+
+
+ax.set_title("NABP SALES REPORT ", size =18.0)
+ax.set_xlabel("Period", size = 12.0)
+ax.set_ylabel("Sales and Returns", size = 12.0)
+
+for x in ax.patches:
+    height = x.get_height()
+    
+    ax.text(x.get_x()+x.get_width(), height+3,'{:1.0f}'.format(height),ha="right")
+plt.show()   
+fig = ax.get_figure()
+fig.savefig("D:\\newsoftware\\CSR Performance report\\complete_sales_report.png")
+
+
+
+#---------------------------------------------------------------------------------------------#----------------------------------------------------------------------------------------------#
+
+
+Employee = Total_sales['EMPLOYEE FIRST NAME'].tolist()
+Employee_name = []
+
+for i in Employee:
+    i = i.rstrip()
+    i = i.replace(" ","")
+    i = i.replace(".","")
+    
+    Employee_name.append(i)
+
+Total_sales.loc[:,'EMPLOYEE FIRST NAME'] = Employee_name
+
+
+
+Sales = Total_sales.loc[Total_sales['INVOICE TOTAL'] > 0]
+
+Returns = Total_sales.loc[Total_sales['INVOICE TOTAL'] < 0]
+
+
+#---------------------------------------------------------------------------------------------#----------------------------------------------------------------------------------------------#
+
+def pivot(data):
+    data['INVOICE DATE'] = pd.to_datetime(data['INVOICE DATE'])
+    data['INVOICE DATE'] = data['INVOICE DATE'].dt.strftime('%Y-%m')   
+    
+    result = pd.pivot_table(data, index = ['SALES PERSON','EMPLOYEE FIRST NAME','INVOICE DATE'], values = ['INVOICE TOTAL'], aggfunc = sum)
+    
+    result = result.reset_index()    
+    
+    return result
+
+def charts(df,title,csrname):
+    
+    sns.set_style("whitegrid")
+    sns.set(font_scale = 0.7)
+    ax = sns.barplot(x = 'INVOICE DATE', y = 'INVOICE TOTAL', data = df, capsize = 2)
+    ax.set_title(("{} Performance Chart {}".format(csrname,title)), size = 18.0)
+    ax.set_xlabel("Period", size = 12.0)
+    ax.set_ylabel("Sales and Returns", size = 12.0)
+    barwidth = 0.1
+    max_value_list = df['INVOICE TOTAL'].tolist()
+    if max(max_value_list) > 0 :
+        max_value = max(max_value_list) + 2500
+        ax.set_ylim(0,max_value)
+    else:
+        min_value = min(max_value_list) - 2500
+        ax.set_ylim(0,min_value)
+        
+    
+    
+    #label_ = employee_name_sales_return.INVOICE_DATE
+
+    for x in ax.patches:
+        height = x.get_height()
+        ax.text(x.get_x()+x.get_width(), height+3,'{:1.0f}'.format(height),ha="right")         
+        
+        
+    plt.show()        
+    fig = ax.get_figure()
+    return fig
+
+
+#-----------------------------------------------------------------------------------------#-------------------------------------------------------------------------------------------------#
+
+Total_sales_pivot = pivot(Total_sales)
+
+df_Total_sales_pivot = pd.DataFrame(Total_sales_pivot)
+df_Total_sales_pivot['INVOICE DATE'] = pd.to_datetime(df_Total_sales_pivot['INVOICE DATE'])
+df_Total_sales_pivot['INVOICE DATE'] = df_Total_sales_pivot['INVOICE DATE'].dt.strftime('%Y-%m')
+
+
+
+df_Total_sales_pivot = pd.pivot_table(df_Total_sales_pivot, index = ['SALES PERSON','EMPLOYEE FIRST NAME'], columns = ['INVOICE DATE'], values = ['INVOICE TOTAL'],aggfunc = sum, margins=True).astype(float)
+df_Total_sales_pivot.to_excel("D:\\newsoftware\\{}\\Sales and Return.xlsx".format('CSR Performance report'))
+
+employee = Total_sales_pivot['EMPLOYEE FIRST NAME'].drop_duplicates().tolist()
+
+
+for i in employee:
+       
+    
+        
+    #Plot_directory = os.path.join(path,dirname)
+    employee_name_sales_return = Total_sales_pivot.loc[Total_sales_pivot['EMPLOYEE FIRST NAME'] == i]
+    
+    Chart_sales_return = charts(employee_name_sales_return,'Sales And Return',i)
+    
+
+    #if not os.path.isdir(Plot_directory):
+        #os.makedirs(Plot_directory)
+
+    Chart_sales_return.savefig("D:\\newsoftware\\CSR Performance report\\Charts\\{}_1.png".format(i))
+
+#---------------------------------------------------------------------------------------------#-----------------------------------------------------------------------------------------------
+
+Sales_pivot = pivot(Sales)
+
+df_Sales_pivot = pd.DataFrame(Sales_pivot)
+df_Sales_pivot['INVOICE DATE'] = pd.to_datetime(df_Sales_pivot['INVOICE DATE'])
+df_Sales_pivot['INVOICE DATE'] = df_Sales_pivot['INVOICE DATE'].dt.strftime('%Y-%m')
+
+df_Sales_pivot = pd.pivot_table(df_Sales_pivot, index = ['SALES PERSON','EMPLOYEE FIRST NAME'], columns = ['INVOICE DATE'], values = ['INVOICE TOTAL'],aggfunc = sum, margins=True)
+df_Sales_pivot.to_excel("D:\\newsoftware\\{}\\Sales.xlsx".format('CSR Performance report'))
+
+employee_name_sales = Sales_pivot['EMPLOYEE FIRST NAME'].drop_duplicates().tolist()
+
+
+
+
+for i in employee_name_sales:
+    #dirname = i
+    #path = "D:\\newsoftware\\CSR Performance report"
+        
+    #Plot_directory = os.path.join(path,dirname)  
+
+    employee_name_sales = Sales_pivot.loc[Sales_pivot['EMPLOYEE FIRST NAME'] == i]         
+    
+    Chart_sales = charts(employee_name_sales, 'Sales', i)
+        
+    
+    #if not os.path.isdir(Plot_directory):
+        #os.makedirs(Plot_directory)
+    
+    Chart_sales.savefig("D:\\newsoftware\\CSR Performance report\\Charts\\{}_2.png".format(i))
+#--------------------------------------------------------------------------------------------------#-------------------------------------------------------------------------------
+
+Returns = pivot(Returns)
+
+df_Returns = pd.DataFrame(Returns)
+df_Returns['INVOICE DATE'] = pd.to_datetime(df_Returns['INVOICE DATE'])
+df_Returns['INVOICE DATE'] = df_Returns['INVOICE DATE'].dt.strftime('%Y-%m')
+
+df_Returns = pd.pivot_table(df_Returns, index = ['SALES PERSON','EMPLOYEE FIRST NAME'], columns = ['INVOICE DATE'], values = ['INVOICE TOTAL'],aggfunc = sum, margins=True)
+df_Returns.to_excel("D:\\newsoftware\\{}\\Returns.xlsx".format('CSR Performance report'))
+
+employee_name_Returns = Returns['EMPLOYEE FIRST NAME'].drop_duplicates().tolist()
+
+
+
+
+for i in employee_name_Returns:
+    #dirname = i
+    #path = "D:\\newsoftware\\CSR Performance report"
+        
+    #Plot_directory = os.path.join(path,dirname)  
+
+    employee_name_Returns = Returns.loc[Returns['EMPLOYEE FIRST NAME'] == i]         
+    
+    
+        
+    Chart_Returns = charts(employee_name_Returns, 'Return', i)
+    
+    #if not os.path.isdir(Plot_directory):
+        #os.makedirs(Plot_directory)
+        
+    
+    Chart_Returns.savefig("D:\\newsoftware\\CSR Performance report\\Charts\\{}_3.png".format(i))
+
+
+
+
+db.close()
+
